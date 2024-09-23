@@ -15,6 +15,8 @@
 7. run the following commands:- 
 	-ls    #You will not get anything as there is no directory present
 	-sudo apt update
+	-sudo apt-get install build-essential
+	-sudo apt-get install pkg-config libmysqlclient-dev (if mysqlclient is not getting installed.)
  	-sudo apt install python3-venv python3-dev libpq-dev nginx curl
 8. Create Virtual Environment for the project by following commands:- 
 	-mkdir ~/myprojectdir
@@ -22,44 +24,16 @@
 	-python3 -m venv myprojectenv
 	-source myprojectenv/bin/activate
 9. Clone the Project from the git repository and run the command pip install -r requirements.txt, make sure in settings.py of your project allowed hosts is set to all.
+
+
 10. Run the following commands to install gunicorn :- 
-	- sudo apt install gunicorn 
+	- pip install gunicorn
+	- which gunicorn 
+
+
 11. Now Creating systemd socket and services files for Gunicorn :-
 
-This is the Project Structure please check the commands accordingly:- 
-
-project/
-│
-├── myprojectenv/  # Virtual environment directory
-│   ├── bin/
-│   ├── include/
-│   ├── lib/
-│   ├── pip-selfcheck.json
-│   ├── pyvenv.cfg
-│   └── ...
-│
-└── Recipe-CRUD-operations/
-    ├── manage.py
-    ├── learn/
-    │   ├── __init__.py
-    │   ├── settings.py
-    │   ├── urls.py
-    │   ├── wsgi.py
-    │   ├── asgi.py  # (optional, if you're using ASGI)
-    │   └── __init__.py
-    │
-    ├── myapp/
-    │   ├── __init__.py
-    │   ├── admin.py
-    │   ├── apps.py
-    │   ├── models.py
-    │   ├── tests.py
-    │   ├── urls.py
-    │   └── views.py
-    │
-    └── db.sqlite3  # (or your database file, if using SQLite)
-
-
+Inside ubuntu clone your project directly 
 
 	For socket file:
 	- sudo nano /etc/systemd/system/gunicorn.socket
@@ -84,25 +58,23 @@ WantedBy=sockets.target
 	- sudo nano /etc/systemd/system/gunicorn.service
 	- Add the following lines inside the file opened after the above command:
 
- 	 *****
-	 
+ 
+	 *****
+
 [Unit]
-Description=gunicorn daemon
-Requires=gunicorn.socket
+Description=gunicorn daemon for myproject
 After=network.target
 
 [Service]
-User=ubuntu              #Need to changed
-Group=www-data
-WorkingDirectory=/home/ubuntu/project/Recipe-CRUD-operations    #Need to be changed use yours using 'pwd' command
-ExecStart=/home/ubuntu/project/myprojectenv/bin/gunicorn \      #Need to be changed
-          --access-logfile - \
-          --workers 3 \
-          --bind unix:/run/gunicorn.sock \
-          learn.wsgi:application				#Need to be changed
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/developer
+ExecStart=/home/ubuntu/developer/env/bin/gunicorn --workers 3 --bind unix:/home/ubuntu/developer/myproject.sock learn.wsgi:application
 
 [Install]
 WantedBy=multi-user.target
+
+
 	 
 
 	 *****
@@ -120,9 +92,10 @@ WantedBy=multi-user.target
 	-sudo journalctl -u gunicorn.socket
 16 Testing Socket Activation:
 	-sudo systemctl status gunicorn
-	-curl --unix-socket /run/gunicorn.sock localhost (After this command index.html code should be visible in the terminal)
+	-curl --unix-socket /run/gunicorn.sock localhost            #(After this command index.html code should be visible in the terminal) (If getting the error like Bad Request 400 then please look into settings.py and in allowed host add ["*"]).
 17. After this:-
 	-sudo systemctl status gunicorn
+	## If something like .env is created using 'sudo nano .env' then below commands must be executed otherwise not:
 	-sudo systemctl daemon-reload
 	-sudo systemctl restart gunicorn
 18. Configure Nginx to Proxy Pass to Gunicorn:
@@ -130,18 +103,86 @@ WantedBy=multi-user.target
 	-Enter the follwing code when a file to edit open up:-
 	
 		****
+-------------------------When deploying your django project just to learn deployment with sql lite db.sqlite3------------
 
 server {
     listen 80;
-    server_name 13.60.240.37;    #Need to be updated(The IPV4 address received in the above step)
+    server_name 16.170.201.173;
+
+    location /static/ {
+        alias /home/ubuntu/custom_admin/staticfiles/;
+        access_log off;
+        log_not_found off;
+    }
 
     location = /favicon.ico { access_log off; log_not_found off; }
+    
+    location / {
+        include proxy_params;
+        proxy_pass http://unix:/run/gunicorn.sock;
+    }
+}
+
+
+-------------------------When using the S3 bucket for the static files---------------------------------------------------
+server {
+    listen 80;
+    server_name 13.60.240.37;    # Update this to your domain or IP address
+
+    # Location block for static files
+    location /static/ {
+        alias /home/ubuntu/awsS3/staticfiles/;  # Path to your static files directory
+        access_log off;
+        log_not_found off;
+    }
+
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+    }
+
+    # Location block for media files (if applicable)
+    location /media/ {
+        alias /home/ubuntu/awsS3/mediafiles/;  # Path to your media files directory
+        access_log off;
+        log_not_found off;
+    }
+
+    # Location block for other requests
+    location / {
+        include proxy_params;
+        proxy_pass http://unix:/run/gunicorn.sock;
+    }
+}
+
+
+----For the rds and s3 bucket:
+server {
+    listen 80;
+    server_name 13.61.16.71;
+
+    location /static/ {
+        proxy_pass https://shivansh04.s3.amazonaws.com/static/;     #bucket name shivansh04 can be modified
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log off;
+        log_not_found off;
+    }
+
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+    }
 
     location / {
         include proxy_params;
         proxy_pass http://unix:/run/gunicorn.sock;
     }
 }
+
+
 
 		****
 
@@ -165,3 +206,28 @@ Refrences:
 	-sudo systemctl daemon-reload
 	-sudo systemctl restart gunicorn
 	-sudo systemctl restart nginx
+--------------------------For Static Files After Deployment------------------------------
+1. Give proper permission to nginx, so that it can have access to the static files:
+	- sudo nano /etc/nginx/nginx.conf
+	- sudo chown -R www-data:www-data /home/ubuntu/custom_admin/staticfiles
+	- sudo chmod -R 755 /home/ubuntu/custom_admin/staticfiles
+	- sudo chmod 755 /home
+	- sudo chmod 755 /home/ubuntu
+	- sudo chmod 755 /home/ubuntu/custom_admin
+	- sudo systemctl restart nginx
+	- sudo tail -f /var/log/nginx/error.log
+	- ls -ld /home/ubuntu/custom_admin/staticfiles
+	- ls -l /home/ubuntu/custom_admin/staticfiles/admin/css
+	- ls -l /home/ubuntu/custom_admin/staticfiles/admin/js
+	- ls -ld /home
+	- ls -ld /home/ubuntu
+	- ls -ld /home/ubuntu/custom_admin
+	- sudo chmod 755 /home
+	- sudo chmod 755 /home/ubuntu
+	- sudo chmod 755 /home/ubuntu/custom_admin
+	- sudo aa-status
+	- sudo systemctl restart nginx
+
+
+
+
